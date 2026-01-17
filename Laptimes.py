@@ -7,17 +7,48 @@ from matplotlib.lines import Line2D
 #Caches data for faster retrieval
 f1.Cache.enable_cache('data')
 
+def get_session():
+    year = int(input("Enter year (2022-2025): "))
+    schedule = fastf1.get_event_schedule(year)
+    race_list = schedule[schedule['EventFormat'] != 'testing']
+    
+    for i, round_name in enumerate(race_list['EventName'], 1):
+        print(f"{i}. {round_name}")
+    
+    race_idx = int(input("\nSelect race number: ")) - 1
+    race_name = race_list.iloc[race_idx]['EventName']
+    
+    print(f"Loading {year} {race_name}...")
+    session = fastf1.get_session(year, race_name, 'R')
+    return session
+
+def get_driver():
+    drivers_df = session.results[['Abbreviation', 'FullName', 'TeamName']]
+    print("\nDrivers:\n", drivers_df.to_string(index=False))
+    driver_code = input("\nEnter first driver abbreviation: ").upper()
+    return driver_code
+
 # Loads the desired race
-session  = f1.get_session(2025, 'Melbourne', 'R')
+session  = get_session()
 session.load()
+
 
 # Extract only laps without major errors or missing sectors, and box stops
 laps = session.laps.pick_accurate()
 clean_laps = laps.pick_wo_box() 
 
-driver = "PIA"
-driver_laps = clean_laps.pick_driver(driver)
-team_color = f1.plotting.team_color(driver_laps['Team'].iloc[0])
+driver = get_driver()
+while True: 
+    try: 
+        driver_laps = clean_laps.pick_driver(driver)
+        break
+    except KeyError:
+        print(f"Driver '{driver}' not found")
+        driver = get_driver()
+
+driver_info = session.results[session.results['Abbreviation'] == driver].iloc[0]
+team_color = fastf1.plotting.get_team_color(driver_info['TeamName'], session=session)
+
 
 # Plot 1: Lap Times Over the Race
 plt.figure(figsize=(12, 6))
