@@ -42,11 +42,18 @@ def get_driver():
 # Loads the desired race
 race, year = get_session()
 race.load()
+all_laps = race.laps.copy()
+
+fastest_laps = all_laps.groupby('LapNumber')['LapTime'].min().reset_index()
+fastest_laps.rename(columns={'LapTime': 'FastestLapTime'}, inplace=True)
 
 driver = get_driver()
 
 driver_laps = race.laps.pick_drivers(driver).pick_quicklaps().reset_index()
 total_laps = driver_laps['LapNumber'].max()
+driver_laps = pd.merge(driver_laps, fastest_laps, on='LapNumber')
+
+driver_laps['DeltaToFastest'] = (driver_laps['LapTime'] - driver_laps['FastestLapTime']).dt.total_seconds()
 
 def calculate_fuel_correction(row):
     laps_remaining = total_laps - row['LapNumber']
@@ -65,6 +72,7 @@ driver_team_color = fastf1.plotting.get_driver_color(driver, race)
 all_driver_laps = race.laps.pick_drivers(driver)
 pit_stops = driver_laps[driver_laps['PitInTime'].notna()]
 pit_laps = pit_stops['LapNumber'].values
+
 
 fig, ax = plt.subplots(figsize=(20, 10))
 
@@ -90,14 +98,13 @@ sns.lineplot(data=fuelCorrected,
 
 stints = fuelCorrected['Stint'].unique()
 
-# ... (rest of your plotting code) ...
+
 
 for stint in stints:
-    # Filter for the specific stint
+    
     stint_data = fuelCorrected[fuelCorrected['Stint'] == stint]
     
-    # NEW: Clean the data for the regression calculation
-    # We remove laps where PitInTime or PitOutTime is present, and the final lap
+   
     clean_stint_data = stint_data[
         (stint_data['PitInTime'].isna()) & 
         (stint_data['PitOutTime'].isna()) &
@@ -136,9 +143,49 @@ ax.invert_yaxis()
 for pit_lap in pit_laps:
     ax.axvline(x=pit_lap, color=driver_team_color, linestyle='--', linewidth=2, alpha=0.7, label='Pit Stop')
 
-ax.legend()
+
+# Create a custom legend handle
+custom_lines = [Line2D([0], [0], color='white', lw=2)]
+
+# Get the existing handles and labels from the scatter plot (the tires)
+handles, labels = ax.get_legend_handles_labels()
+
+# Add our custom line to the list
+handles.append(custom_lines[0])
+labels.append("Fuel Corrected Lap Time")
+
+# Re-apply the legend with the new combined list
+ax.legend(handles=handles, labels=labels)
 
 plt.suptitle(f"{driver} Laptimes in the {year} {race.event['EventName']}")
+plt.grid(color='w', which='major', axis='both')
+sns.despine(left=True, bottom=True)
+
+plt.tight_layout()
+
+
+fig2, ax2 = plt.subplots(figsize=(20, 10))
+
+# Plot the Delta points
+sns.scatterplot(data=driver_laps, 
+                x="LapNumber", 
+                y="DeltaToFastest", 
+                hue="Compound", 
+                palette=fastf1.plotting.get_compound_mapping(session=race),
+                s=100, ax=ax2, alpha=0.8)
+
+# Add the 'Leader' baseline (The 0.0 line)
+ax2.axhline(0, color='white', linestyle='--', alpha=0.8, label="Leader Pace")
+
+# Invert axis: being closer to 0 (top) is 'faster'
+ax2.invert_yaxis()
+
+# Formatting for the new plot
+ax2.set_ylabel("Seconds Behind Leader")
+ax2.set_xlabel("Lap Number")
+ax2.set_title(f"{driver} Delta to Session Leader - {year} {race.event['EventName']}")
+ax2.grid(color='gray', alpha=0.2, linestyle=':')
+ax2.legend()
 
 # Turn on major grid lines
 plt.grid(color='w', which='major', axis='both')
