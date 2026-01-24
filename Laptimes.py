@@ -5,6 +5,8 @@ import fastf1.plotting
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as goq
 
 
 # Set dark background and white text for all plots
@@ -44,8 +46,8 @@ race, year = get_session()
 race.load()
 all_laps = race.laps.copy()
 
-fastest_laps = all_laps.groupby('LapNumber')['LapTime'].min().reset_index()
-fastest_laps.rename(columns={'LapTime': 'FastestLapTime'}, inplace=True)
+fastest_laps = all_laps.groupby('LapNumber').agg({'LapTime': 'min', 'Driver': 'first'}).reset_index()
+fastest_laps.rename(columns={'LapTime': 'FastestLapTime', 'Driver': 'FastestDriver'}, inplace=True)
 
 driver = get_driver()
 
@@ -72,6 +74,17 @@ driver_team_color = fastf1.plotting.get_driver_color(driver, race)
 all_driver_laps = race.laps.pick_drivers(driver)
 pit_stops = driver_laps[driver_laps['PitInTime'].notna()]
 pit_laps = pit_stops['LapNumber'].values
+
+
+def format_timedelta(td):
+    if pd.isna(td): return ""
+    total_seconds = td.total_seconds()
+    minutes = int(total_seconds // 60)
+    seconds = total_seconds % 60
+    return f"{minutes}:{seconds:06.3f}"
+
+driver_laps['LapTimeStr'] = driver_laps['LapTime'].apply(format_timedelta)
+driver_laps['FuelCorrectedStr'] = fuelCorrected['FuelCorrectedLapTime'].apply(format_timedelta)
 
 
 fig, ax = plt.subplots(figsize=(20, 10))
@@ -164,32 +177,29 @@ sns.despine(left=True, bottom=True)
 plt.tight_layout()
 
 
-fig2, ax2 = plt.subplots(figsize=(20, 10))
+# Create the interactive Plotly figure
+fig_interactive = px.scatter(
+    driver_laps, 
+    x="LapNumber", 
+    y="DeltaToFastest", 
+    color="Compound",
+    title=f"{driver} Delta to Session Leader - {year} {race.event['EventName']}",
+    hover_data={
+        "LapNumber": True,
+        "DeltaToFastest": ":.3f",
+        "LapTime": True,
+        "FastestDriver": True  # This shows who set the fastest lap!
+    },
+    template="plotly_dark"
+)
 
-# Plot the Delta points
-sns.scatterplot(data=driver_laps, 
-                x="LapNumber", 
-                y="DeltaToFastest", 
-                hue="Compound", 
-                palette=fastf1.plotting.get_compound_mapping(session=race),
-                s=100, ax=ax2, alpha=0.8)
+# Customizing the layout to match your F1 style
+fig_interactive.update_yaxes(autorange="reversed", title_text="Seconds Behind Leader")
+fig_interactive.update_xaxes(title_text="Lap Number")
 
-# Add the 'Leader' baseline (The 0.0 line)
-ax2.axhline(0, color='white', linestyle='--', alpha=0.8, label="Leader Pace")
+# Add the 0.0 baseline
+fig_interactive.add_hline(y=0, line_dash="dash", line_color="white", annotation_text="Pace Leader")
 
-# Invert axis: being closer to 0 (top) is 'faster'
-ax2.invert_yaxis()
-
-# Formatting for the new plot
-ax2.set_ylabel("Seconds Behind Leader")
-ax2.set_xlabel("Lap Number")
-ax2.set_title(f"{driver} Delta to Session Leader - {year} {race.event['EventName']}")
-ax2.grid(color='gray', alpha=0.2, linestyle=':')
-ax2.legend()
-
-# Turn on major grid lines
-plt.grid(color='w', which='major', axis='both')
-sns.despine(left=True, bottom=True)
-
-plt.tight_layout()
+# Show the plot
+fig_interactive.show()
 plt.show()
